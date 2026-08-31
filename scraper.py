@@ -11,7 +11,6 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 def get_recent_months(count=4):
-    """Pichle 4 calendar months (e.g. Aug-2026, Jul-2026) generate karta hai."""
     months = []
     now = datetime.now()
     for i in range(count):
@@ -49,12 +48,7 @@ def parse_pdf_broiler(pdf_path):
                 date_str = date_match.group(1)
                 after_date = line[date_match.end():]
                 rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
-                cleaned = []
-                for r in rates:
-                    val = r.strip()
-                    if val and not val.upper().startswith("RS"):
-                        val = f"RS. {val}"
-                    cleaned.append(val)
+                cleaned = [r.strip() if r.strip().upper().startswith("RS") else f"RS. {r.strip()}" for r in rates]
                 if len(cleaned) >= 3:
                     data[date_str] = {
                         "broiler_announced_rate": cleaned[0],
@@ -87,32 +81,75 @@ def parse_pdf_chick(pdf_path):
                 rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
                 if rates:
                     val = rates[0].strip()
-                    if not val.upper().startswith("RS"):
-                        val = f"RS. {val}"
-                    data[date_str] = val
+                    data[date_str] = val if val.upper().startswith("RS") else f"RS. {val}"
     except Exception as e:
         print(f"Error parsing Chick PDF {pdf_path}: {e}")
     return data
 
-def scrape_table_fallback(page, is_broiler=True):
-    data_dict = {}
-    soup = BeautifulSoup(page.content(), "html.parser")
-    table = soup.find("table")
-    if table:
-        for row in table.find_all("tr")[1:]:
-            cols = row.find_all("td")
-            if len(cols) >= 2:
-                d = cols[0].text.strip()
-                if d:
-                    if is_broiler and len(cols) >= 4:
-                        data_dict[d] = {
-                            "broiler_announced_rate": cols[1].text.strip(),
-                            "market_position": cols[2].text.strip(),
-                            "average_rate": cols[3].text.strip()
-                        }
-                    elif not is_broiler:
-                        data_dict[d] = cols[1].text.strip()
-    return data_dict
+def scrape_today_cards(page):
+    """Scrapes today's live rate from the top card of the page."""
+    today_data = {"broiler": {}, "chick": {}}
+    
+    # 1. Scrape Today Broiler Card
+    try:
+        page.goto("https://www.poultrybaba.com/rates/broiler/lahore", timeout=60000)
+        page.wait_for_selector("h1, h2", timeout=10000)
+        text = page.content()
+        soup = BeautifulSoup(text, "html.parser")
+        
+        # Look for today's date e.g., 31 Aug 2026
+        date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', soup.text)
+        if date_match:
+            dt_obj = datetime.strptime(date_match.group(1), "%d %b %Y")
+            formatted_date = dt_obj.strftime("%d-%m-%Y")
+            
+            announced = "N/A"
+            actual = "N/A"
+            
+            ann_elem = soup.find(text=re.compile(r'ANNOUNCED RATE', re.I))
+            if ann_elem and ann_elem.parent:
+                rate_match = re.search(r'(\d+[\.\d]*)', ann_elem.parent.parent.text)
+                if rate_match:
+                    announced = f"RS. {rate_match.group(1)}"
+                    
+            act_elem = soup.find(text=re.compile(r'ACTUAL POSITION', re.I))
+            if act_elem and act_elem.parent:
+                rate_match = re.search(r'(\d+[\.\d]*)', act_elem.parent.parent.text)
+                if rate_match:
+                    actual = f"RS. {rate_match.group(1)}"
+                    
+            today_data["broiler"][formatted_date] = {
+                "broiler_announced_rate": announced,
+                "market_position": actual,
+                "average_rate": "N/A"
+            }
+    except Exception as e:
+        print(f"Error scraping today broiler card: {e}")
+
+    # 2. Scrape Today Chick Card
+    try:
+        page.goto("https://www.poultrybaba.com/rates/broiler-chick/lahore", timeout=60000)
+        page.wait_for_selector("h1, h2", timeout=10000)
+        text = page.content()
+        soup = BeautifulSoup(text, "html.parser")
+        
+        date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', soup.text)
+        if date_match:
+            dt_obj = datetime.strptime(date_match.group(1), "%d %b %Y")
+            formatted_date = dt_obj.strftime("%d-%m-%Y")
+            
+            chick_rate = "N/A"
+            ann_elem = soup.find(text=re.compile(r'ANNOUNCED RATE', re.I))
+            if ann_elem and ann_elem.parent:
+                rate_match = re.search(r'(\d+[\.\d]*)', ann_elem.parent.parent.text)
+                if rate_match:
+                    chick_rate = f"RS. {rate_match.group(1)}"
+                    
+            today_data["chick"][formatted_date] = chick_rate
+    except Exception as e:
+        print(f"Error scraping today chick card: {e}")
+        
+    return today_data
 
 def scrape_lahore_combined():
     broiler_dict = {}
@@ -124,7 +161,13 @@ def scrape_lahore_combined():
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
-        # 1. Download & Parse Broiler PDFs
+        # Scrape Today's Live Rate Top Cards
+        print("Scraping Today's Live Rates...")
+        today_cards = scrape_today_cards(page)
+        broiler_dict.update(today_cards["broiler"])
+        chick_dict.update(today_cards["chick"])
+
+        # 1. Download Broiler PDFs
         print("Downloading Broiler PDFs...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler/lahore?month={m_str}"
@@ -140,20 +183,16 @@ def scrape_lahore_combined():
                     temp_pdf = f"broiler_{m_str}.pdf"
                     download.save_as(temp_pdf)
                     parsed = parse_pdf_broiler(temp_pdf)
-                    broiler_dict.update(parsed)
+                    for k, v in parsed.items():
+                        if k not in broiler_dict:
+                            broiler_dict[k] = v
                     if os.path.exists(temp_pdf):
                         os.remove(temp_pdf)
-                
-                # HTML Table Fallback merge
-                table_data = scrape_table_fallback(page, is_broiler=True)
-                for k, v in table_data.items():
-                    if k not in broiler_dict:
-                        broiler_dict[k] = v
             except Exception as e:
                 print(f"Error processing Broiler page for {m_str}: {e}")
 
-        # 2. Download & Parse Broiler Chick (DOC) PDFs
-        print("Downloading Broiler Chick PDFs...")
+        # 2. Download Chick PDFs
+        print("Downloading Chick PDFs...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m_str}"
             try:
@@ -168,21 +207,16 @@ def scrape_lahore_combined():
                     temp_pdf = f"chick_{m_str}.pdf"
                     download.save_as(temp_pdf)
                     parsed = parse_pdf_chick(temp_pdf)
-                    chick_dict.update(parsed)
+                    for k, v in parsed.items():
+                        if k not in chick_dict:
+                            chick_dict[k] = v
                     if os.path.exists(temp_pdf):
                         os.remove(temp_pdf)
-
-                # HTML Table Fallback merge
-                table_data = scrape_table_fallback(page, is_broiler=False)
-                for k, v in table_data.items():
-                    if k not in chick_dict:
-                        chick_dict[k] = v
             except Exception as e:
                 print(f"Error processing Chick page for {m_str}: {e}")
 
         browser.close()
 
-    # Combine extracted entries
     all_dates = list(dict.fromkeys(list(broiler_dict.keys()) + list(chick_dict.keys())))
     scraped_entries = []
 
@@ -207,17 +241,13 @@ def scrape_lahore_combined():
         except Exception:
             existing_data = []
 
-    # Merge by date key
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         combined_map[entry["date"]] = entry
 
     all_entries = list(combined_map.values())
-
-    # Sort descending by Calendar Date
     all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
 
-    # Strictly retain top 90 records (drops 91st oldest date)
     final_90_days_data = all_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:

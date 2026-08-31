@@ -1,0 +1,114 @@
+[
+    {
+        "date": "30-08-2026",
+        "doc_announced_rate": "RS. 75.5",
+        "broiler_announced_rate": "RS. 305",
+        "market_position": "RS. 295",
+        "average_rate": "RS. 312"
+    },
+    {
+        "date": "29-08-2026",
+        "doc_announced_rate": "N/A",
+        "broiler_announced_rate": "RS. 305",
+        "market_position": "RS. 315",
+        "average_rate": "RS. 313"
+    },
+    {
+        "date": "28-08-2026",
+        "doc_announced_rate": "RS. 90",
+        "broiler_announced_rate": "RS. 305",
+        "market_position": "RS. 315",
+        "average_rate": "RS. 313"
+    },
+    {
+        "date": "27-08-2026",
+        "doc_announced_rate": "RS. 95",
+        "broiler_announced_rate": "RS. 300",
+        "market_position": "RS. 310",
+        "average_rate": "RS. 312"
+    },
+    {
+        "date": "26-08-2026",
+        "doc_announced_rate": "RS. 95",
+        "broiler_announced_rate": "RS. 315",
+        "market_position": "RS. 300",
+        "average_rate": "RS. 313"
+    },
+    {
+        "date": "25-08-2026",
+        "doc_announced_rate": "RS. 90",
+        "broiler_announced_rate": "RS. 330",
+        "market_position": "RS. 325",
+        "average_rate": "RS. 313"
+    },
+    {
+        "date": "24-08-2026",
+        "doc_announced_rate": "RS. 90",
+        "broiler_announced_rate": "RS. 320",
+        "market_position": "RS. 240",
+        "average_rate": "RS. 313"
+    },
+    {
+        "date": "23-08-2026",
+        "doc_announced_rate": "RS. 86",
+        "broiler_announced_rate": "RS. 320",
+        "market_position": "RS. 325",
+        "average_rate": "RS. 316"
+    },
+    {
+        "date": "22-08-2026",
+        "doc_announced_rate": "RS. 86",
+        "broiler_announced_rate": "RS. 315",
+        "market_position": "RS. 320",
+        "average_rate": "RS. 315"
+    },
+    {
+        "date": "21-08-2026",
+        "doc_announced_rate": "RS. 86",
+        "broiler_announced_rate": "RS. 320",
+        "market_position": "RS. 315",
+        "average_rate": "RS. 315"
+    },
+    {
+        "date": "20-08-2026",
+        "doc_announced_rate": "RS. 86",
+        "broiler_announced_rate": "RS. 340",
+        "market_position": "RS. 325",
+        "average_rate": "RS. 315"
+    },
+    {
+        "date": "19-08-2026",
+        "doc_announced_rate": "RS. 85",
+        "broiler_announced_rate": "RS. 340",
+        "market_position": "RS. 335",
+        "average_rate": "RS. 314"
+    },
+    {
+        "date": "18-08-2026",
+        "doc_announced_rate": "RS. 85",
+        "broiler_announced_rate": "RS. 330",
+        "market_position": "RS. 340",
+        "average_rate": "RS. 313"
+    },
+    {
+        "date": "17-08-2026",
+        "doc_announced_rate": "RS. 96",
+        "broiler_announced_rate": "RS. 325",
+        "market_position": "RS. 330",
+        "average_rate": "RS. 312"
+    },
+    {
+        "date": "16-08-2026",
+        "doc_announced_rate": "RS. 96",
+        "broiler_announced_rate": "RS. 330",
+        "market_position": "RS. 325",
+        "average_rate": "RS. 311"
+    },
+    {
+        "date": "15-08-2026",
+        "doc_announced_rate": "RS. 96",
+        "broiler_announced_rate": "N/A",
+        "market_position": "N/A",
+        "average_rate": "N/A"
+    }
+]

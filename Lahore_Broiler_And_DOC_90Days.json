@@ -1,112 +1,112 @@
 [
     {
         "date": "30-08-2026",
-        "doc_announced_rate": "RS. 75.5",
-        "broiler_announced_rate": "RS. 305",
-        "market_position": "RS. 295",
-        "average_rate": "RS. 312"
+        "doc_announced_rate": "RS. 75.5$0.27 USD",
+        "broiler_announced_rate": "RS. 305$1.10 USD",
+        "market_position": "RS. 295$1.06 USD",
+        "average_rate": "RS. 312$1.12 USD"
     },
     {
         "date": "29-08-2026",
         "doc_announced_rate": "N/A",
-        "broiler_announced_rate": "RS. 305",
-        "market_position": "RS. 315",
-        "average_rate": "RS. 313"
+        "broiler_announced_rate": "RS. 305$1.10 USD",
+        "market_position": "RS. 315$1.13 USD",
+        "average_rate": "RS. 313$1.13 USD"
     },
     {
         "date": "28-08-2026",
-        "doc_announced_rate": "RS. 90",
-        "broiler_announced_rate": "RS. 305",
-        "market_position": "RS. 315",
-        "average_rate": "RS. 313"
+        "doc_announced_rate": "RS. 90$0.32 USD",
+        "broiler_announced_rate": "RS. 305$1.10 USD",
+        "market_position": "RS. 315$1.13 USD",
+        "average_rate": "RS. 313$1.12 USD"
     },
     {
         "date": "27-08-2026",
-        "doc_announced_rate": "RS. 95",
-        "broiler_announced_rate": "RS. 300",
-        "market_position": "RS. 310",
-        "average_rate": "RS. 312"
+        "doc_announced_rate": "RS. 95$0.34 USD",
+        "broiler_announced_rate": "RS. 300$1.08 USD",
+        "market_position": "RS. 310$1.12 USD",
+        "average_rate": "RS. 312$1.12 USD"
     },
     {
         "date": "26-08-2026",
-        "doc_announced_rate": "RS. 95",
-        "broiler_announced_rate": "RS. 315",
-        "market_position": "RS. 300",
-        "average_rate": "RS. 313"
+        "doc_announced_rate": "RS. 95$0.34 USD",
+        "broiler_announced_rate": "RS. 315$1.13 USD",
+        "market_position": "RS. 300$1.08 USD",
+        "average_rate": "RS. 313$1.12 USD"
     },
     {
         "date": "25-08-2026",
-        "doc_announced_rate": "RS. 90",
-        "broiler_announced_rate": "RS. 330",
-        "market_position": "RS. 325",
-        "average_rate": "RS. 313"
+        "doc_announced_rate": "RS. 90$0.32 USD",
+        "broiler_announced_rate": "RS. 330$1.19 USD",
+        "market_position": "RS. 325$1.17 USD",
+        "average_rate": "RS. 313$1.13 USD"
     },
     {
         "date": "24-08-2026",
-        "doc_announced_rate": "RS. 90",
-        "broiler_announced_rate": "RS. 320",
-        "market_position": "RS. 240",
-        "average_rate": "RS. 313"
+        "doc_announced_rate": "RS. 90$0.32 USD",
+        "broiler_announced_rate": "RS. 320$1.15 USD",
+        "market_position": "RS. 240$0.86 USD",
+        "average_rate": "RS. 313$1.12 USD"
     },
     {
         "date": "23-08-2026",
-        "doc_announced_rate": "RS. 86",
-        "broiler_announced_rate": "RS. 320",
-        "market_position": "RS. 325",
-        "average_rate": "RS. 316"
+        "doc_announced_rate": "RS. 86$0.31 USD",
+        "broiler_announced_rate": "RS. 320$1.15 USD",
+        "market_position": "RS. 325$1.17 USD",
+        "average_rate": "RS. 316$1.14 USD"
     },
     {
         "date": "22-08-2026",
-        "doc_announced_rate": "RS. 86",
-        "broiler_announced_rate": "RS. 315",
-        "market_position": "RS. 320",
-        "average_rate": "RS. 315"
+        "doc_announced_rate": "RS. 86$0.31 USD",
+        "broiler_announced_rate": "RS. 315$1.13 USD",
+        "market_position": "RS. 320$1.15 USD",
+        "average_rate": "RS. 315$1.13 USD"
     },
     {
         "date": "21-08-2026",
-        "doc_announced_rate": "RS. 86",
-        "broiler_announced_rate": "RS. 320",
-        "market_position": "RS. 315",
-        "average_rate": "RS. 315"
+        "doc_announced_rate": "RS. 86$0.31 USD",
+        "broiler_announced_rate": "RS. 320$1.15 USD",
+        "market_position": "RS. 315$1.13 USD",
+        "average_rate": "RS. 315$1.13 USD"
     },
     {
         "date": "20-08-2026",
-        "doc_announced_rate": "RS. 86",
-        "broiler_announced_rate": "RS. 340",
-        "market_position": "RS. 325",
-        "average_rate": "RS. 315"
+        "doc_announced_rate": "RS. 86$0.31 USD",
+        "broiler_announced_rate": "RS. 340$1.22 USD",
+        "market_position": "RS. 325$1.17 USD",
+        "average_rate": "RS. 315$1.13 USD"
     },
     {
         "date": "19-08-2026",
-        "doc_announced_rate": "RS. 85",
-        "broiler_announced_rate": "RS. 340",
-        "market_position": "RS. 335",
-        "average_rate": "RS. 314"
+        "doc_announced_rate": "RS. 85$0.31 USD",
+        "broiler_announced_rate": "RS. 340$1.22 USD",
+        "market_position": "RS. 335$1.21 USD",
+        "average_rate": "RS. 314$1.13 USD"
     },
     {
         "date": "18-08-2026",
-        "doc_announced_rate": "RS. 85",
-        "broiler_announced_rate": "RS. 330",
-        "market_position": "RS. 340",
-        "average_rate": "RS. 313"
+        "doc_announced_rate": "RS. 85$0.31 USD",
+        "broiler_announced_rate": "RS. 330$1.19 USD",
+        "market_position": "RS. 340$1.22 USD",
+        "average_rate": "RS. 313$1.13 USD"
     },
     {
         "date": "17-08-2026",
-        "doc_announced_rate": "RS. 96",
-        "broiler_announced_rate": "RS. 325",
-        "market_position": "RS. 330",
-        "average_rate": "RS. 312"
+        "doc_announced_rate": "RS. 96$0.35 USD",
+        "broiler_announced_rate": "RS. 325$1.17 USD",
+        "market_position": "RS. 330$1.19 USD",
+        "average_rate": "RS. 312$1.12 USD"
     },
     {
         "date": "16-08-2026",
-        "doc_announced_rate": "RS. 96",
-        "broiler_announced_rate": "RS. 330",
-        "market_position": "RS. 325",
-        "average_rate": "RS. 311"
+        "doc_announced_rate": "RS. 96$0.35 USD",
+        "broiler_announced_rate": "RS. 330$1.19 USD",
+        "market_position": "RS. 325$1.17 USD",
+        "average_rate": "RS. 311$1.12 USD"
     },
     {
         "date": "15-08-2026",
-        "doc_announced_rate": "RS. 96",
+        "doc_announced_rate": "RS. 96$0.35 USD",
         "broiler_announced_rate": "N/A",
         "market_position": "N/A",
         "average_rate": "N/A"

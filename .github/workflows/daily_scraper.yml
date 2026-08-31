@@ -1,0 +1,37 @@
+name: Poultry Scraper (Sync to Repo and Drive)
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape-and-sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Libraries
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: Run Scraper
+        env:
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: python scraper.py
+
+      - name: Save to Repo
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add Lahore_Broiler_And_DOC_90Days.json
+          git commit -m "Auto update rates" || exit 0
+          git push

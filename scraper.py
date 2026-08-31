@@ -39,46 +39,61 @@ def scrape_lahore_combined():
     broiler_dict = {}
     chick_dict = {}
 
-    # Scrape Broiler Rates
-    for m in months:
-        url = f"https://www.poultrybaba.com/rates/broiler/lahore?month={m}"
-        try:
-            res = requests.get(url, headers=headers, timeout=15)
-            if res.status_code == 200:
-                soup = BeautifulSoup(res.text, "html.parser")
-                table = soup.find("table")
-                if table:
-                    for row in table.find_all("tr")[1:]:
-                        cols = row.find_all("td")
-                        if len(cols) >= 4:
-                            d = cols[0].text.strip()
-                            if d and d not in broiler_dict:
-                                broiler_dict[d] = {
-                                    "broiler_announced_rate": cols[1].text.strip(),
-                                    "market_position": cols[2].text.strip(),
-                                    "average_rate": cols[3].text.strip()
-                                }
-        except Exception as e:
-            print(f"Error scraping broiler data for {m}: {e}")
+    # 1. Loop pages (1 to 8) & months to fetch full 90-day Broiler history
+    for p in range(1, 9):
+        urls = [
+            f"https://www.poultrybaba.com/rates/broiler/lahore?page={p}",
+            f"https://www.poultrybaba.com/rates/broiler/lahore?p={p}"
+        ]
+        for m in months:
+            urls.append(f"https://www.poultrybaba.com/rates/broiler/lahore?month={m}&page={p}")
 
-    # Scrape DOC Rates
-    for m in months:
-        url = f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m}"
-        try:
-            res = requests.get(url, headers=headers, timeout=15)
-            if res.status_code == 200:
-                soup = BeautifulSoup(res.text, "html.parser")
-                table = soup.find("table")
-                if table:
-                    for row in table.find_all("tr")[1:]:
-                        cols = row.find_all("td")
-                        if len(cols) >= 2:
-                            d = cols[0].text.strip()
-                            if d and d not in chick_dict:
-                                chick_dict[d] = cols[1].text.strip()
-        except Exception as e:
-            print(f"Error scraping chick data for {m}: {e}")
+        for url in urls:
+            try:
+                res = requests.get(url, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    soup = BeautifulSoup(res.text, "html.parser")
+                    table = soup.find("table")
+                    if table:
+                        for row in table.find_all("tr")[1:]:
+                            cols = row.find_all("td")
+                            if len(cols) >= 4:
+                                d = cols[0].text.strip()
+                                if d and d not in broiler_dict:
+                                    broiler_dict[d] = {
+                                        "broiler_announced_rate": cols[1].text.strip(),
+                                        "market_position": cols[2].text.strip(),
+                                        "average_rate": cols[3].text.strip()
+                                    }
+            except Exception:
+                pass
 
+    # 2. Loop pages (1 to 8) & months to fetch full 90-day Chick (DOC) history
+    for p in range(1, 9):
+        urls = [
+            f"https://www.poultrybaba.com/rates/broiler-chick/lahore?page={p}",
+            f"https://www.poultrybaba.com/rates/broiler-chick/lahore?p={p}"
+        ]
+        for m in months:
+            urls.append(f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m}&page={p}")
+
+        for url in urls:
+            try:
+                res = requests.get(url, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    soup = BeautifulSoup(res.text, "html.parser")
+                    table = soup.find("table")
+                    if table:
+                        for row in table.find_all("tr")[1:]:
+                            cols = row.find_all("td")
+                            if len(cols) >= 2:
+                                d = cols[0].text.strip()
+                                if d and d not in chick_dict:
+                                    chick_dict[d] = cols[1].text.strip()
+            except Exception:
+                pass
+
+    # Combine scraped entries
     all_dates = list(dict.fromkeys(list(broiler_dict.keys()) + list(chick_dict.keys())))
     scraped_entries = []
 
@@ -103,17 +118,21 @@ def scrape_lahore_combined():
         except Exception:
             existing_data = []
 
+    # Merge by date key
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         combined_map[entry["date"]] = entry
 
     all_entries = list(combined_map.values())
 
+    # Sort descending (latest date first)
     def date_key(item):
         dt = parse_date_string(item["date"])
         return dt if dt else datetime.min
 
     all_entries.sort(key=date_key, reverse=True)
+
+    # Strictly keep top 90 records (drops 91st oldest record automatically)
     final_90_days_data = all_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:

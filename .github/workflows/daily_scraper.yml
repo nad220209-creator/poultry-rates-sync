@@ -32,6 +32,6 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add Lahore_Broiler_And_DOC_90Days.json
-          git commit -m "Auto update rates" || exit 0
+          git add -A
+          git commit -m "Auto update rates (90 days history)" || exit 0
           git push

@@ -8,6 +8,20 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+def get_recent_months(count=4):
+    """Pichle N calendar months ke month-year strings generate karta hai (e.g. Aug-2026, Jul-2026)."""
+    months = []
+    now = datetime.now()
+    for i in range(count):
+        year = now.year
+        month = now.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        dt = datetime(year, month, 1)
+        months.append(dt.strftime("%b-%Y"))
+    return months
+
 def parse_date_string(date_str):
     if not date_str:
         return datetime.min
@@ -19,18 +33,25 @@ def parse_date_string(date_str):
             pass
     return datetime.min
 
-def scrape_with_playwright(url, is_broiler=True):
+def scrape_with_playwright(base_url, is_broiler=True):
     data_dict = {}
+    recent_months = get_recent_months(4)  # Pichle 4 months cover 90+ days
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        page.goto(url, timeout=60000)
-        page.wait_for_selector("table")
 
-        # 1. Pichle 4 Months tak navigate karne ka loop
-        for month_step in range(4):
-            # 2. Har month ke andar 15-day pages crawl karne ka loop
-            for page_step in range(3):
+        for m_str in recent_months:
+            month_url = f"{base_url}?month={m_str}"
+            try:
+                page.goto(month_url, timeout=60000)
+                page.wait_for_selector("table", timeout=15000)
+            except Exception as e:
+                print(f"Skipping month URL {month_url}: {e}")
+                continue
+
+            # Har month ke andar 15-day chunks iterate karne ka loop
+            while True:
                 soup = BeautifulSoup(page.content(), "html.parser")
                 table = soup.find("table")
                 if table:
@@ -48,36 +69,36 @@ def scrape_with_playwright(url, is_broiler=True):
                                 elif not is_broiler:
                                     data_dict[d] = cols[1].text.strip()
 
-                # Upper 15 Days Page Navigation (← PREVIOUS 15 DAYS)
-                prev_15_btn = page.locator("xpath=//*[contains(translate(text(), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'), 'PREVIOUS 15 DAYS')]")
-                if prev_15_btn.count() > 0 and prev_15_btn.first.is_visible():
+                # Upper "PREVIOUS 15 DAYS" button ka state check
+                prev_btn = page.get_by_text("PREVIOUS 15 DAYS", exact=False)
+                if prev_btn.count() > 0 and prev_btn.first.is_visible():
+                    btn_element = prev_btn.first
+                    btn_class = btn_element.get_attribute("class") or ""
+                    
+                    # Agar button disabled ya greyed out ho jaye toh inner loop end karke agla month load karein
+                    if btn_element.is_disabled() or "disabled" in btn_class.lower() or "grey" in btn_class.lower():
+                        break
+
                     try:
-                        prev_15_btn.first.click()
+                        old_content = page.content()
+                        btn_element.click(force=True, timeout=3000)
                         page.wait_for_timeout(2500)
+                        # Agar click ke baad content change na ho (month ka start aa gaya) toh loop break karein
+                        if page.content() == old_content:
+                            break
                     except Exception:
                         break
                 else:
                     break
 
-            # Lower Month Navigation (< Month Year > button click)
-            prev_month_btn = page.locator("xpath=//button[contains(., '<')] | //a[contains(., '<')] | //div[contains(., '<')]").first
-            if prev_month_btn.count() > 0 and prev_month_btn.is_visible():
-                try:
-                    prev_month_btn.click()
-                    page.wait_for_timeout(3500)
-                except Exception:
-                    break
-            else:
-                break
-
         browser.close()
     return data_dict
 
 def scrape_lahore_combined():
-    print("Scraping Broiler Rates across months...")
+    print("Scraping 90 days Broiler Rates...")
     broiler_dict = scrape_with_playwright("https://www.poultrybaba.com/rates/broiler/lahore", is_broiler=True)
     
-    print("Scraping DOC Rates across months...")
+    print("Scraping 90 days Chick Rates...")
     chick_dict = scrape_with_playwright("https://www.poultrybaba.com/rates/broiler-chick/lahore", is_broiler=False)
 
     all_dates = list(dict.fromkeys(list(broiler_dict.keys()) + list(chick_dict.keys())))
@@ -104,17 +125,16 @@ def scrape_lahore_combined():
         except Exception:
             existing_data = []
 
-    # Merge by date
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         combined_map[entry["date"]] = entry
 
     all_entries = list(combined_map.values())
 
-    # Sort descending by Calendar Date
+    # Date ke mutabiq descending sort (latest date pehle)
     all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
 
-    # Strictly retain top 90 records
+    # Strictly top 90 records preserve honge (91st oldest date drop ho jayegi)
     final_90_days_data = all_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:

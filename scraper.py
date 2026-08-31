@@ -1,99 +1,71 @@
 import os
 import json
-import requests
-from bs4 import BeautifulSoup
 from datetime import datetime
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-def get_recent_months(count=4):
-    months = []
-    now = datetime.now()
-    for i in range(count):
-        year = now.year
-        month = now.month - i
-        while month <= 0:
-            month += 12
-            year -= 1
-        dt = datetime(year, month, 1)
-        months.append(dt.strftime("%b-%Y"))
-    return months
-
 def parse_date_string(date_str):
+    if not date_str:
+        return datetime.min
     date_str = date_str.strip()
-    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+    for fmt in ("%d-%m-%Y", "%d %b %Y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y"):
         try:
             return datetime.strptime(date_str, fmt)
         except ValueError:
             pass
-    return None
+    return datetime.min
+
+def scrape_with_playwright(url, is_broiler=True):
+    data_dict = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, timeout=60000)
+        page.wait_for_selector("table")
+
+        # Previous 15 Days button par 6 baar click karke 90+ days history load karein
+        for _ in range(7):
+            soup = BeautifulSoup(page.content(), "html.parser")
+            table = soup.find("table")
+            if table:
+                for row in table.find_all("tr")[1:]:
+                    cols = row.find_all("td")
+                    if len(cols) >= 2:
+                        d = cols[0].text.strip()
+                        if d and d not in data_dict:
+                            if is_broiler and len(cols) >= 4:
+                                data_dict[d] = {
+                                    "broiler_announced_rate": cols[1].text.strip(),
+                                    "market_position": cols[2].text.strip(),
+                                    "average_rate": cols[3].text.strip()
+                                }
+                            elif not is_broiler:
+                                data_dict[d] = cols[1].text.strip()
+
+            # Click Previous Days button
+            prev_btn = page.locator("text=Previous 15 Days")
+            if prev_btn.count() > 0 and prev_btn.first.is_visible():
+                try:
+                    prev_btn.first.click()
+                    page.wait_for_timeout(2500)
+                except Exception:
+                    break
+            else:
+                break
+        browser.close()
+    return data_dict
 
 def scrape_lahore_combined():
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    print("Scraping Broiler Rates via Playwright...")
+    broiler_dict = scrape_with_playwright("https://www.poultrybaba.com/rates/broiler/lahore", is_broiler=True)
     
-    months = get_recent_months(4)
-    broiler_dict = {}
-    chick_dict = {}
+    print("Scraping DOC Rates via Playwright...")
+    chick_dict = scrape_with_playwright("https://www.poultrybaba.com/rates/broiler-chick/lahore", is_broiler=False)
 
-    # 1. Loop pages (1 to 8) & months to fetch full 90-day Broiler history
-    for p in range(1, 9):
-        urls = [
-            f"https://www.poultrybaba.com/rates/broiler/lahore?page={p}",
-            f"https://www.poultrybaba.com/rates/broiler/lahore?p={p}"
-        ]
-        for m in months:
-            urls.append(f"https://www.poultrybaba.com/rates/broiler/lahore?month={m}&page={p}")
-
-        for url in urls:
-            try:
-                res = requests.get(url, headers=headers, timeout=10)
-                if res.status_code == 200:
-                    soup = BeautifulSoup(res.text, "html.parser")
-                    table = soup.find("table")
-                    if table:
-                        for row in table.find_all("tr")[1:]:
-                            cols = row.find_all("td")
-                            if len(cols) >= 4:
-                                d = cols[0].text.strip()
-                                if d and d not in broiler_dict:
-                                    broiler_dict[d] = {
-                                        "broiler_announced_rate": cols[1].text.strip(),
-                                        "market_position": cols[2].text.strip(),
-                                        "average_rate": cols[3].text.strip()
-                                    }
-            except Exception:
-                pass
-
-    # 2. Loop pages (1 to 8) & months to fetch full 90-day Chick (DOC) history
-    for p in range(1, 9):
-        urls = [
-            f"https://www.poultrybaba.com/rates/broiler-chick/lahore?page={p}",
-            f"https://www.poultrybaba.com/rates/broiler-chick/lahore?p={p}"
-        ]
-        for m in months:
-            urls.append(f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m}&page={p}")
-
-        for url in urls:
-            try:
-                res = requests.get(url, headers=headers, timeout=10)
-                if res.status_code == 200:
-                    soup = BeautifulSoup(res.text, "html.parser")
-                    table = soup.find("table")
-                    if table:
-                        for row in table.find_all("tr")[1:]:
-                            cols = row.find_all("td")
-                            if len(cols) >= 2:
-                                d = cols[0].text.strip()
-                                if d and d not in chick_dict:
-                                    chick_dict[d] = cols[1].text.strip()
-            except Exception:
-                pass
-
-    # Combine scraped entries
     all_dates = list(dict.fromkeys(list(broiler_dict.keys()) + list(chick_dict.keys())))
     scraped_entries = []
 
@@ -118,21 +90,13 @@ def scrape_lahore_combined():
         except Exception:
             existing_data = []
 
-    # Merge by date key
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         combined_map[entry["date"]] = entry
 
     all_entries = list(combined_map.values())
 
-    # Sort descending (latest date first)
-    def date_key(item):
-        dt = parse_date_string(item["date"])
-        return dt if dt else datetime.min
-
-    all_entries.sort(key=date_key, reverse=True)
-
-    # Strictly keep top 90 records (drops 91st oldest record automatically)
+    all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
     final_90_days_data = all_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:

@@ -1,7 +1,8 @@
 import os
+import re
 import json
 from datetime import datetime
-from bs4 import BeautifulSoup
+from pypdf import PdfReader
 from playwright.sync_api import sync_playwright
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -9,7 +10,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 def get_recent_months(count=4):
-    """Pichle N calendar months ke month-year strings generate karta hai (e.g. Aug-2026, Jul-2026)."""
+    """Pichle N calendar months generate karta hai (e.g. Aug-2026, Jul-2026)."""
     months = []
     now = datetime.now()
     for i in range(count):
@@ -33,73 +34,79 @@ def parse_date_string(date_str):
             pass
     return datetime.min
 
-def scrape_with_playwright(base_url, is_broiler=True):
+def parse_pdf_data(pdf_path, is_broiler=True):
     data_dict = {}
-    recent_months = get_recent_months(4)  # Pichle 4 months cover 90+ days
+    try:
+        reader = PdfReader(pdf_path)
+        full_text = ""
+        for page in reader.pages:
+            full_text += page.extract_text() + "\n"
+
+        lines = full_text.split("\n")
+        for line in lines:
+            line = line.strip()
+            # Match date pattern e.g., 31-07-2026 or 1-08-2026
+            date_match = re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{4})", line)
+            if date_match:
+                d = date_match.group(1)
+                # Split line parts by pipe '|' or spaces
+                parts = [p.strip() for p in line.split("|") if p.strip()]
+                if len(parts) >= 2:
+                    if is_broiler and len(parts) >= 4:
+                        data_dict[d] = {
+                            "broiler_announced_rate": parts[1],
+                            "market_position": parts[2],
+                            "average_rate": parts[3]
+                        }
+                    elif not is_broiler:
+                        data_dict[d] = parts[1]
+    except Exception as e:
+        print(f"Error parsing PDF {pdf_path}: {e}")
+    return data_dict
+
+def download_and_parse_months(base_url, is_broiler=True):
+    combined_dict = {}
+    recent_months = get_recent_months(4) # Pichle 4 mahine (Aug, Jul, Jun, May)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(accept_downloads=True)
+        page = context.new_page()
 
         for m_str in recent_months:
             month_url = f"{base_url}?month={m_str}"
             try:
                 page.goto(month_url, timeout=60000)
                 page.wait_for_selector("table", timeout=15000)
-            except Exception as e:
-                print(f"Skipping month URL {month_url}: {e}")
-                continue
 
-            # Har month ke andar 15-day chunks iterate karne ka loop
-            while True:
-                soup = BeautifulSoup(page.content(), "html.parser")
-                table = soup.find("table")
-                if table:
-                    for row in table.find_all("tr")[1:]:
-                        cols = row.find_all("td")
-                        if len(cols) >= 2:
-                            d = cols[0].text.strip()
-                            if d and d not in data_dict:
-                                if is_broiler and len(cols) >= 4:
-                                    data_dict[d] = {
-                                        "broiler_announced_rate": cols[1].text.strip(),
-                                        "market_position": cols[2].text.strip(),
-                                        "average_rate": cols[3].text.strip()
-                                    }
-                                elif not is_broiler:
-                                    data_dict[d] = cols[1].text.strip()
-
-                # Upper "PREVIOUS 15 DAYS" button ka state check
-                prev_btn = page.get_by_text("PREVIOUS 15 DAYS", exact=False)
-                if prev_btn.count() > 0 and prev_btn.first.is_visible():
-                    btn_element = prev_btn.first
-                    btn_class = btn_element.get_attribute("class") or ""
+                # Download PDF button click
+                pdf_btn = page.get_by_text("Download PDF", exact=False)
+                if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
+                    with page.expect_download(timeout=15000) as download_info:
+                        pdf_btn.first.click(force=True)
                     
-                    # Agar button disabled ya greyed out ho jaye toh inner loop end karke agla month load karein
-                    if btn_element.is_disabled() or "disabled" in btn_class.lower() or "grey" in btn_class.lower():
-                        break
+                    download = download_info.value
+                    temp_pdf = f"temp_{'broiler' if is_broiler else 'chick'}_{m_str}.pdf"
+                    download.save_as(temp_pdf)
 
-                    try:
-                        old_content = page.content()
-                        btn_element.click(force=True, timeout=3000)
-                        page.wait_for_timeout(2500)
-                        # Agar click ke baad content change na ho (month ka start aa gaya) toh loop break karein
-                        if page.content() == old_content:
-                            break
-                    except Exception:
-                        break
-                else:
-                    break
+                    # Extract data from PDF
+                    month_data = parse_pdf_data(temp_pdf, is_broiler=is_broiler)
+                    combined_dict.update(month_data)
+
+                    if os.path.exists(temp_pdf):
+                        os.remove(temp_pdf)
+            except Exception as e:
+                print(f"Error processing PDF for {month_url}: {e}")
 
         browser.close()
-    return data_dict
+    return combined_dict
 
 def scrape_lahore_combined():
-    print("Scraping 90 days Broiler Rates...")
-    broiler_dict = scrape_with_playwright("https://www.poultrybaba.com/rates/broiler/lahore", is_broiler=True)
+    print("Downloading & parsing Broiler PDFs for last 4 months...")
+    broiler_dict = download_and_parse_months("https://www.poultrybaba.com/rates/broiler/lahore", is_broiler=True)
     
-    print("Scraping 90 days Chick Rates...")
-    chick_dict = scrape_with_playwright("https://www.poultrybaba.com/rates/broiler-chick/lahore", is_broiler=False)
+    print("Downloading & parsing Chick (DOC) PDFs for last 4 months...")
+    chick_dict = download_and_parse_months("https://www.poultrybaba.com/rates/broiler-chick/lahore", is_broiler=False)
 
     all_dates = list(dict.fromkeys(list(broiler_dict.keys()) + list(chick_dict.keys())))
     scraped_entries = []
@@ -125,6 +132,7 @@ def scrape_lahore_combined():
         except Exception:
             existing_data = []
 
+    # Merge by date
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         combined_map[entry["date"]] = entry

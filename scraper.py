@@ -3,12 +3,12 @@ import json
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 def get_recent_months(count=4):
-    """Pichle N calendar months ke month-year strings generate karta hai (e.g., Aug-2026, Jul-2026)."""
     months = []
     now = datetime.now()
     for i in range(count):
@@ -22,7 +22,6 @@ def get_recent_months(count=4):
     return months
 
 def parse_date_string(date_str):
-    """Date strings ko parse karke datetime object banata hai taaki sort ho sakein."""
     date_str = date_str.strip()
     for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
         try:
@@ -36,11 +35,11 @@ def scrape_lahore_combined():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    months = get_recent_months(4) # 4 months cover 90+ days history
+    months = get_recent_months(4)
     broiler_dict = {}
     chick_dict = {}
 
-    # 1. Scrape Broiler Rates across pagination months
+    # Scrape Broiler Rates
     for m in months:
         url = f"https://www.poultrybaba.com/rates/broiler/lahore?month={m}"
         try:
@@ -62,7 +61,7 @@ def scrape_lahore_combined():
         except Exception as e:
             print(f"Error scraping broiler data for {m}: {e}")
 
-    # 2. Scrape Broiler Chick (DOC) Rates across pagination months
+    # Scrape DOC Rates
     for m in months:
         url = f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m}"
         try:
@@ -80,7 +79,6 @@ def scrape_lahore_combined():
         except Exception as e:
             print(f"Error scraping chick data for {m}: {e}")
 
-    # 3. Scraped entries combine karein
     all_dates = list(dict.fromkeys(list(broiler_dict.keys()) + list(chick_dict.keys())))
     scraped_entries = []
 
@@ -95,7 +93,6 @@ def scrape_lahore_combined():
             "average_rate": b_info.get("average_rate", "N/A")
         })
 
-    # 4. Local file merge and rolling 90-day window limit
     local_file = "Lahore_Broiler_And_DOC_90Days.json"
     existing_data = []
 
@@ -106,21 +103,17 @@ def scrape_lahore_combined():
         except Exception:
             existing_data = []
 
-    # Combine existing and new data by date
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         combined_map[entry["date"]] = entry
 
     all_entries = list(combined_map.values())
 
-    # Sort descending (newest date first)
     def date_key(item):
         dt = parse_date_string(item["date"])
         return dt if dt else datetime.min
 
     all_entries.sort(key=date_key, reverse=True)
-
-    # Strictly keep top 90 records (rolling FIFO window)
     final_90_days_data = all_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:
@@ -130,35 +123,43 @@ def scrape_lahore_combined():
     return local_file
 
 def upload_to_drive(file_path):
-    creds_json = os.environ.get("GDRIVE_CREDENTIALS")
+    client_id = os.environ.get("GDRIVE_CLIENT_ID")
+    client_secret = os.environ.get("GDRIVE_CLIENT_SECRET")
+    refresh_token = os.environ.get("GDRIVE_REFRESH_TOKEN")
     folder_id = os.environ.get("GDRIVE_FOLDER_ID")
 
-    if not creds_json or not folder_id:
-        print("Error: Missing GDRIVE_CREDENTIALS or GDRIVE_FOLDER_ID environment variables!")
+    if not all([client_id, client_secret, refresh_token, folder_id]):
+        print("Missing required Drive OAuth credentials in environment variables!")
         return
 
-    creds_dict = json.loads(creds_json)
-    creds = Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/drive"]
+    creds = Credentials(
+        token=None,
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=["https://www.googleapis.com/auth/drive.file"]
     )
+
+    if creds.expired or not creds.valid:
+        creds.refresh(Request())
 
     service = build("drive", "v3", credentials=creds)
     file_name = "Lahore_Broiler_And_DOC_90Days.json"
 
     query = f"'{folder_id}' in parents and name = '{file_name}' and trashed = false"
-    results = service.files().list(q=query, fields="files(id)", supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+    results = service.files().list(q=query, fields="files(id)").execute()
     files = results.get("files", [])
 
     media = MediaFileUpload(file_path, mimetype="application/json")
 
     if files:
-        service.files().update(fileId=files[0]["id"], media_body=media, supportsAllDrives=True).execute()
-        print("File updated on Google Drive!")
+        service.files().update(fileId=files[0]["id"], media_body=media).execute()
+        print("File updated on Google Drive successfully!")
     else:
         file_metadata = {"name": file_name, "parents": [folder_id]}
-        service.files().create(body=file_metadata, media_body=media, fields="id", supportsAllDrives=True).execute()
-        print("File created on Google Drive!")
+        service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+        print("File created on Google Drive successfully!")
 
 if __name__ == "__main__":
     file_path = scrape_lahore_combined()

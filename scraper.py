@@ -3,6 +3,7 @@ import re
 import json
 from datetime import datetime
 from pypdf import PdfReader
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -10,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 def get_recent_months(count=4):
-    """Pichle N calendar months generate karta hai (e.g. Aug-2026, Jul-2026)."""
+    """Pichle 4 calendar months (e.g. Aug-2026, Jul-2026) generate karta hai."""
     months = []
     now = datetime.now()
     for i in range(count):
@@ -34,80 +35,154 @@ def parse_date_string(date_str):
             pass
     return datetime.min
 
-def parse_pdf_data(pdf_path, is_broiler=True):
-    data_dict = {}
+def parse_pdf_broiler(pdf_path):
+    data = {}
     try:
         reader = PdfReader(pdf_path)
         full_text = ""
         for page in reader.pages:
-            full_text += page.extract_text() + "\n"
+            full_text += (page.extract_text() or "") + "\n"
 
-        lines = full_text.split("\n")
-        for line in lines:
-            line = line.strip()
-            # Match date pattern e.g., 31-07-2026 or 1-08-2026
-            date_match = re.search(r"(\d{1,2}[-/]\d{1,2}[-/]\d{4})", line)
+        for line in full_text.splitlines():
+            date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{4})', line)
             if date_match:
-                d = date_match.group(1)
-                # Split line parts by pipe '|' or spaces
-                parts = [p.strip() for p in line.split("|") if p.strip()]
-                if len(parts) >= 2:
-                    if is_broiler and len(parts) >= 4:
+                date_str = date_match.group(1)
+                after_date = line[date_match.end():]
+                rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
+                cleaned = []
+                for r in rates:
+                    val = r.strip()
+                    if val and not val.upper().startswith("RS"):
+                        val = f"RS. {val}"
+                    cleaned.append(val)
+                if len(cleaned) >= 3:
+                    data[date_str] = {
+                        "broiler_announced_rate": cleaned[0],
+                        "market_position": cleaned[1],
+                        "average_rate": cleaned[2]
+                    }
+                elif len(cleaned) == 2:
+                    data[date_str] = {
+                        "broiler_announced_rate": cleaned[0],
+                        "market_position": cleaned[1],
+                        "average_rate": "N/A"
+                    }
+    except Exception as e:
+        print(f"Error parsing Broiler PDF {pdf_path}: {e}")
+    return data
+
+def parse_pdf_chick(pdf_path):
+    data = {}
+    try:
+        reader = PdfReader(pdf_path)
+        full_text = ""
+        for page in reader.pages:
+            full_text += (page.extract_text() or "") + "\n"
+
+        for line in full_text.splitlines():
+            date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{4})', line)
+            if date_match:
+                date_str = date_match.group(1)
+                after_date = line[date_match.end():]
+                rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
+                if rates:
+                    val = rates[0].strip()
+                    if not val.upper().startswith("RS"):
+                        val = f"RS. {val}"
+                    data[date_str] = val
+    except Exception as e:
+        print(f"Error parsing Chick PDF {pdf_path}: {e}")
+    return data
+
+def scrape_table_fallback(page, is_broiler=True):
+    data_dict = {}
+    soup = BeautifulSoup(page.content(), "html.parser")
+    table = soup.find("table")
+    if table:
+        for row in table.find_all("tr")[1:]:
+            cols = row.find_all("td")
+            if len(cols) >= 2:
+                d = cols[0].text.strip()
+                if d:
+                    if is_broiler and len(cols) >= 4:
                         data_dict[d] = {
-                            "broiler_announced_rate": parts[1],
-                            "market_position": parts[2],
-                            "average_rate": parts[3]
+                            "broiler_announced_rate": cols[1].text.strip(),
+                            "market_position": cols[2].text.strip(),
+                            "average_rate": cols[3].text.strip()
                         }
                     elif not is_broiler:
-                        data_dict[d] = parts[1]
-    except Exception as e:
-        print(f"Error parsing PDF {pdf_path}: {e}")
+                        data_dict[d] = cols[1].text.strip()
     return data_dict
 
-def download_and_parse_months(base_url, is_broiler=True):
-    combined_dict = {}
-    recent_months = get_recent_months(4) # Pichle 4 mahine (Aug, Jul, Jun, May)
+def scrape_lahore_combined():
+    broiler_dict = {}
+    chick_dict = {}
+    recent_months = get_recent_months(4)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
+        # 1. Download & Parse Broiler PDFs
+        print("Downloading Broiler PDFs...")
         for m_str in recent_months:
-            month_url = f"{base_url}?month={m_str}"
+            url = f"https://www.poultrybaba.com/rates/broiler/lahore?month={m_str}"
             try:
-                page.goto(month_url, timeout=60000)
+                page.goto(url, timeout=60000)
                 page.wait_for_selector("table", timeout=15000)
-
-                # Download PDF button click
+                
                 pdf_btn = page.get_by_text("Download PDF", exact=False)
                 if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
-                    with page.expect_download(timeout=15000) as download_info:
+                    with page.expect_download(timeout=20000) as download_info:
                         pdf_btn.first.click(force=True)
-                    
                     download = download_info.value
-                    temp_pdf = f"temp_{'broiler' if is_broiler else 'chick'}_{m_str}.pdf"
+                    temp_pdf = f"broiler_{m_str}.pdf"
                     download.save_as(temp_pdf)
-
-                    # Extract data from PDF
-                    month_data = parse_pdf_data(temp_pdf, is_broiler=is_broiler)
-                    combined_dict.update(month_data)
-
+                    parsed = parse_pdf_broiler(temp_pdf)
+                    broiler_dict.update(parsed)
                     if os.path.exists(temp_pdf):
                         os.remove(temp_pdf)
+                
+                # HTML Table Fallback merge
+                table_data = scrape_table_fallback(page, is_broiler=True)
+                for k, v in table_data.items():
+                    if k not in broiler_dict:
+                        broiler_dict[k] = v
             except Exception as e:
-                print(f"Error processing PDF for {month_url}: {e}")
+                print(f"Error processing Broiler page for {m_str}: {e}")
+
+        # 2. Download & Parse Broiler Chick (DOC) PDFs
+        print("Downloading Broiler Chick PDFs...")
+        for m_str in recent_months:
+            url = f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m_str}"
+            try:
+                page.goto(url, timeout=60000)
+                page.wait_for_selector("table", timeout=15000)
+                
+                pdf_btn = page.get_by_text("Download PDF", exact=False)
+                if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
+                    with page.expect_download(timeout=20000) as download_info:
+                        pdf_btn.first.click(force=True)
+                    download = download_info.value
+                    temp_pdf = f"chick_{m_str}.pdf"
+                    download.save_as(temp_pdf)
+                    parsed = parse_pdf_chick(temp_pdf)
+                    chick_dict.update(parsed)
+                    if os.path.exists(temp_pdf):
+                        os.remove(temp_pdf)
+
+                # HTML Table Fallback merge
+                table_data = scrape_table_fallback(page, is_broiler=False)
+                for k, v in table_data.items():
+                    if k not in chick_dict:
+                        chick_dict[k] = v
+            except Exception as e:
+                print(f"Error processing Chick page for {m_str}: {e}")
 
         browser.close()
-    return combined_dict
 
-def scrape_lahore_combined():
-    print("Downloading & parsing Broiler PDFs for last 4 months...")
-    broiler_dict = download_and_parse_months("https://www.poultrybaba.com/rates/broiler/lahore", is_broiler=True)
-    
-    print("Downloading & parsing Chick (DOC) PDFs for last 4 months...")
-    chick_dict = download_and_parse_months("https://www.poultrybaba.com/rates/broiler-chick/lahore", is_broiler=False)
-
+    # Combine extracted entries
     all_dates = list(dict.fromkeys(list(broiler_dict.keys()) + list(chick_dict.keys())))
     scraped_entries = []
 
@@ -132,17 +207,17 @@ def scrape_lahore_combined():
         except Exception:
             existing_data = []
 
-    # Merge by date
+    # Merge by date key
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         combined_map[entry["date"]] = entry
 
     all_entries = list(combined_map.values())
 
-    # Date ke mutabiq descending sort (latest date pehle)
+    # Sort descending by Calendar Date
     all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
 
-    # Strictly top 90 records preserve honge (91st oldest date drop ho jayegi)
+    # Strictly retain top 90 records (drops 91st oldest date)
     final_90_days_data = all_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:

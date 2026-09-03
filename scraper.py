@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 from datetime import datetime
 from pypdf import PdfReader
 from bs4 import BeautifulSoup
@@ -27,6 +28,9 @@ def parse_date_string(date_str):
     if not date_str:
         return datetime.min
     date_str = date_str.strip()
+    m = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', date_str)
+    if m:
+        date_str = m.group(1)
     for fmt in ("%d-%m-%Y", "%d %b %Y", "%d-%b-%Y", "%Y-%m-%d", "%d/%m/%Y"):
         try:
             return datetime.strptime(date_str, fmt)
@@ -35,11 +39,19 @@ def parse_date_string(date_str):
     return datetime.min
 
 def normalize_date(date_str):
-    """Standardizes dates to DD-MM-YYYY format."""
     dt = parse_date_string(date_str)
     if dt != datetime.min:
         return dt.strftime("%d-%m-%Y")
     return date_str.strip()
+
+def clean_rate_text(text):
+    if not text or text == "N/A":
+        return "N/A"
+    text = re.sub(r'\$\d+(?:\.\d+)?\s*USD', '', text, flags=re.IGNORECASE).strip()
+    m = re.search(r'(?:RS\.?\s*)?(\d+(?:\.\d+)?)', text, re.IGNORECASE)
+    if m:
+        return f"RS. {m.group(1)}"
+    return text.strip() if text.strip() else "N/A"
 
 def parse_pdf_broiler(pdf_path):
     data = {}
@@ -52,11 +64,10 @@ def parse_pdf_broiler(pdf_path):
         for line in full_text.splitlines():
             date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{4})', line)
             if date_match:
-                raw_date = date_match.group(1)
-                norm_d = normalize_date(raw_date)
+                norm_d = normalize_date(date_match.group(1))
                 after_date = line[date_match.end():]
-                rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
-                cleaned = [r.strip() if r.strip().upper().startswith("RS") else f"RS. {r.strip()}" for r in rates]
+                rates = re.findall(r'(?:RS\.?\s*)?\d+(?:\.\d+)?', after_date, re.IGNORECASE)
+                cleaned = [clean_rate_text(r) for r in rates if clean_rate_text(r) != "N/A"]
                 if len(cleaned) >= 3:
                     data[norm_d] = {
                         "broiler_announced_rate": cleaned[0],
@@ -84,16 +95,31 @@ def parse_pdf_chick(pdf_path):
         for line in full_text.splitlines():
             date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{4})', line)
             if date_match:
-                raw_date = date_match.group(1)
-                norm_d = normalize_date(raw_date)
+                norm_d = normalize_date(date_match.group(1))
                 after_date = line[date_match.end():]
-                rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
-                if rates:
-                    val = rates[0].strip()
-                    data[norm_d] = val if val.upper().startswith("RS") else f"RS. {val}"
+                rates = re.findall(r'(?:RS\.?\s*)?\d+(?:\.\d+)?', after_date, re.IGNORECASE)
+                cleaned = [clean_rate_text(r) for r in rates if clean_rate_text(r) != "N/A"]
+                if cleaned:
+                    data[norm_d] = cleaned[0]
     except Exception as e:
         print(f"Error parsing Chick PDF {pdf_path}: {e}")
     return data
+
+def download_pdf_with_retry(page, pdf_btn, temp_pdf, max_retries=10):
+    """Retries downloading PDF up to 10 times with 1.5 sec delay on failure."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            with page.expect_download(timeout=15000) as download_info:
+                pdf_btn.first.click(force=True)
+            download = download_info.value
+            download.save_as(temp_pdf)
+            if os.path.exists(temp_pdf) and os.path.getsize(temp_pdf) > 0:
+                print(f"Download successful on attempt {attempt}: {temp_pdf}")
+                return True
+        except Exception as e:
+            print(f"PDF Download attempt {attempt}/{max_retries} failed: {e}")
+            page.wait_for_timeout(1500)
+    return False
 
 def scrape_table_fallback(page, is_broiler=True):
     data_dict = {}
@@ -108,12 +134,12 @@ def scrape_table_fallback(page, is_broiler=True):
                     norm_d = normalize_date(d)
                     if is_broiler and len(cols) >= 4:
                         data_dict[norm_d] = {
-                            "broiler_announced_rate": cols[1].text.strip(),
-                            "market_position": cols[2].text.strip(),
-                            "average_rate": cols[3].text.strip()
+                            "broiler_announced_rate": clean_rate_text(cols[1].text),
+                            "market_position": clean_rate_text(cols[2].text),
+                            "average_rate": clean_rate_text(cols[3].text)
                         }
                     elif not is_broiler:
-                        data_dict[norm_d] = cols[1].text.strip()
+                        data_dict[norm_d] = clean_rate_text(cols[1].text)
     return data_dict
 
 def scrape_today_cards(page):
@@ -122,7 +148,7 @@ def scrape_today_cards(page):
     # Broiler Card
     try:
         page.goto("https://www.poultrybaba.com/rates/broiler/lahore", timeout=60000)
-        page.wait_for_selector("h1, h2", timeout=10000)
+        page.wait_for_selector("table", timeout=15000)
         soup = BeautifulSoup(page.content(), "html.parser")
         
         date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', soup.text)
@@ -154,7 +180,7 @@ def scrape_today_cards(page):
     # Chick Card
     try:
         page.goto("https://www.poultrybaba.com/rates/broiler-chick/lahore", timeout=60000)
-        page.wait_for_selector("h1, h2", timeout=10000)
+        page.wait_for_selector("table", timeout=15000)
         soup = BeautifulSoup(page.content(), "html.parser")
         
         date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', soup.text)
@@ -176,6 +202,7 @@ def scrape_today_cards(page):
 def scrape_lahore_combined():
     broiler_dict = {}
     chick_dict = {}
+    download_failures = []
     recent_months = get_recent_months(4)
 
     with sync_playwright() as p:
@@ -188,7 +215,8 @@ def scrape_lahore_combined():
         broiler_dict.update(today_cards["broiler"])
         chick_dict.update(today_cards["chick"])
 
-        print("Downloading Broiler PDFs & Scraping Tables...")
+        # 1. Download Broiler PDFs with Retry
+        print("Downloading Broiler PDFs with retries...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler/lahore?month={m_str}"
             try:
@@ -196,23 +224,26 @@ def scrape_lahore_combined():
                 page.wait_for_selector("table", timeout=15000)
                 
                 t_data = scrape_table_fallback(page, is_broiler=True)
-                broiler_dict.update(t_data)
+                for k, v in t_data.items():
+                    if k not in broiler_dict:
+                        broiler_dict[k] = v
 
                 pdf_btn = page.get_by_text("Download PDF", exact=False)
                 if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
-                    with page.expect_download(timeout=20000) as download_info:
-                        pdf_btn.first.click(force=True)
-                    download = download_info.value
                     temp_pdf = f"broiler_{m_str}.pdf"
-                    download.save_as(temp_pdf)
-                    parsed = parse_pdf_broiler(temp_pdf)
-                    broiler_dict.update(parsed)
-                    if os.path.exists(temp_pdf):
-                        os.remove(temp_pdf)
+                    success = download_pdf_with_retry(page, pdf_btn, temp_pdf, max_retries=10)
+                    if success:
+                        parsed = parse_pdf_broiler(temp_pdf)
+                        broiler_dict.update(parsed)
+                        if os.path.exists(temp_pdf):
+                            os.remove(temp_pdf)
+                    else:
+                        download_failures.append(f"Broiler PDF download failed after 10 retries for month {m_str}")
             except Exception as e:
-                print(f"Error processing Broiler page for {m_str}: {e}")
+                download_failures.append(f"Broiler page error for month {m_str}: {e}")
 
-        print("Downloading Chick PDFs & Scraping Tables...")
+        # 2. Download Chick PDFs with Retry
+        print("Downloading Chick PDFs with retries...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m_str}"
             try:
@@ -220,21 +251,23 @@ def scrape_lahore_combined():
                 page.wait_for_selector("table", timeout=15000)
                 
                 t_data = scrape_table_fallback(page, is_broiler=False)
-                chick_dict.update(t_data)
+                for k, v in t_data.items():
+                    if k not in chick_dict:
+                        chick_dict[k] = v
 
                 pdf_btn = page.get_by_text("Download PDF", exact=False)
                 if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
-                    with page.expect_download(timeout=20000) as download_info:
-                        pdf_btn.first.click(force=True)
-                    download = download_info.value
                     temp_pdf = f"chick_{m_str}.pdf"
-                    download.save_as(temp_pdf)
-                    parsed = parse_pdf_chick(temp_pdf)
-                    chick_dict.update(parsed)
-                    if os.path.exists(temp_pdf):
-                        os.remove(temp_pdf)
+                    success = download_pdf_with_retry(page, pdf_btn, temp_pdf, max_retries=10)
+                    if success:
+                        parsed = parse_pdf_chick(temp_pdf)
+                        chick_dict.update(parsed)
+                        if os.path.exists(temp_pdf):
+                            os.remove(temp_pdf)
+                    else:
+                        download_failures.append(f"Chick PDF download failed after 10 retries for month {m_str}")
             except Exception as e:
-                print(f"Error processing Chick page for {m_str}: {e}")
+                download_failures.append(f"Chick page error for month {m_str}: {e}")
 
         browser.close()
 
@@ -260,15 +293,15 @@ def scrape_lahore_combined():
     local_file = "Lahore_Broiler_And_DOC_90Days.json"
     existing_data = []
 
-    # Read existing JSON file so historical records are NEVER overwritten
     if os.path.exists(local_file):
         try:
             with open(local_file, "r", encoding="utf-8") as f:
                 existing_data = json.load(f)
+                # Filter out previous status log objects if present
+                existing_data = [item for item in existing_data if "date" in item and item["date"] != "STATUS_LOG"]
         except Exception:
             existing_data = []
 
-    # Merge newly scraped entries with existing history
     combined_map = {item["date"]: item for item in existing_data}
     for entry in scraped_entries:
         if entry["date"] not in combined_map:
@@ -282,8 +315,17 @@ def scrape_lahore_combined():
     all_entries = list(combined_map.values())
     all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
 
-    # Strictly retain top 90 records
     final_90_days_data = all_entries[:90]
+
+    # If any download failures occurred after 10 retries, prepend a status log entry at index 0
+    if download_failures:
+        failure_log_entry = {
+            "date": "STATUS_LOG",
+            "status": "PARTIAL_FAILURE",
+            "failures": download_failures,
+            "timestamp": datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+        }
+        final_90_days_data.insert(0, failure_log_entry)
 
     with open(local_file, "w", encoding="utf-8") as f:
         json.dump(final_90_days_data, f, indent=4, ensure_ascii=False)

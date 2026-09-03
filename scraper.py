@@ -35,7 +35,7 @@ def parse_date_string(date_str):
     return datetime.min
 
 def normalize_date(date_str):
-    """Standardizes all dates to DD-MM-YYYY format (e.g., 2-9-2026 -> 02-09-2026)."""
+    """Standardizes dates to DD-MM-YYYY format."""
     dt = parse_date_string(date_str)
     if dt != datetime.min:
         return dt.strftime("%d-%m-%Y")
@@ -195,11 +195,9 @@ def scrape_lahore_combined():
                 page.goto(url, timeout=60000)
                 page.wait_for_selector("table", timeout=15000)
                 
-                # HTML Table Fallback
                 t_data = scrape_table_fallback(page, is_broiler=True)
                 broiler_dict.update(t_data)
 
-                # PDF Parsing
                 pdf_btn = page.get_by_text("Download PDF", exact=False)
                 if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
                     with page.expect_download(timeout=20000) as download_info:
@@ -221,11 +219,9 @@ def scrape_lahore_combined():
                 page.goto(url, timeout=60000)
                 page.wait_for_selector("table", timeout=15000)
                 
-                # HTML Table Fallback
                 t_data = scrape_table_fallback(page, is_broiler=False)
                 chick_dict.update(t_data)
 
-                # PDF Parsing
                 pdf_btn = page.get_by_text("Download PDF", exact=False)
                 if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
                     with page.expect_download(timeout=20000) as download_info:
@@ -249,7 +245,6 @@ def scrape_lahore_combined():
         b_info = broiler_dict.get(d, {})
         doc_rate = chick_dict.get(d, "N/A")
         
-        # Determine rates
         b_ann = b_info.get("broiler_announced_rate", "N/A") if isinstance(b_info, dict) else "N/A"
         m_pos = b_info.get("market_position", "N/A") if isinstance(b_info, dict) else "N/A"
         a_rate = b_info.get("average_rate", "N/A") if isinstance(b_info, dict) else "N/A"
@@ -263,17 +258,37 @@ def scrape_lahore_combined():
         })
 
     local_file = "Lahore_Broiler_And_DOC_90Days.json"
+    existing_data = []
 
-    # Sort descending by Calendar Date
-    scraped_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
+    # Read existing JSON file so historical records are NEVER overwritten
+    if os.path.exists(local_file):
+        try:
+            with open(local_file, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+        except Exception:
+            existing_data = []
 
-    # Top 90 clean records
-    final_90_days_data = scraped_entries[:90]
+    # Merge newly scraped entries with existing history
+    combined_map = {item["date"]: item for item in existing_data}
+    for entry in scraped_entries:
+        if entry["date"] not in combined_map:
+            combined_map[entry["date"]] = entry
+        else:
+            existing = combined_map[entry["date"]]
+            for key in ["doc_announced_rate", "broiler_announced_rate", "market_position", "average_rate"]:
+                if entry[key] != "N/A":
+                    existing[key] = entry[key]
+
+    all_entries = list(combined_map.values())
+    all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
+
+    # Strictly retain top 90 records
+    final_90_days_data = all_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:
         json.dump(final_90_days_data, f, indent=4, ensure_ascii=False)
 
-    print(f"Successfully updated {local_file} with {len(final_90_days_data)} clean records.")
+    print(f"Successfully updated {local_file} with {len(final_90_days_data)} records.")
     return local_file
 
 def upload_to_drive(file_path):

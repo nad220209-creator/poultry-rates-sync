@@ -4,7 +4,7 @@
         "doc_announced_rate": "RS. 85.5",
         "broiler_announced_rate": "RS. 310",
         "market_position": "RS. 310",
-        "average_rate": "N/A"
+        "average_rate": "RS. 308"
     },
     {
         "date": "02-09-2026",
@@ -36,7 +36,7 @@
     },
     {
         "date": "29-08-2026",
-        "doc_announced_rate": "N/A",
+        "doc_announced_rate": "RS. 90",
         "broiler_announced_rate": "RS. 305",
         "market_position": "RS. 315",
         "average_rate": "RS. 313"
@@ -491,7 +491,7 @@
     },
     {
         "date": "25-06-2026",
-        "doc_announced_rate": "N/A",
+        "doc_announced_rate": "RS. 20",
         "broiler_announced_rate": "RS. 270",
         "market_position": "RS. 275",
         "average_rate": "RS. 269"

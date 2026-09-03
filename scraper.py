@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import time
 from datetime import datetime
 from pypdf import PdfReader
 from bs4 import BeautifulSoup
@@ -106,7 +105,6 @@ def parse_pdf_chick(pdf_path):
     return data
 
 def download_pdf_with_retry(page, pdf_btn, temp_pdf, max_retries=10):
-    """Retries downloading PDF up to 10 times with 1.5 sec delay on failure."""
     for attempt in range(1, max_retries + 1):
         try:
             with page.expect_download(timeout=15000) as download_info:
@@ -215,8 +213,7 @@ def scrape_lahore_combined():
         broiler_dict.update(today_cards["broiler"])
         chick_dict.update(today_cards["chick"])
 
-        # 1. Download Broiler PDFs with Retry
-        print("Downloading Broiler PDFs with retries...")
+        print("Downloading Broiler PDFs...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler/lahore?month={m_str}"
             try:
@@ -238,12 +235,11 @@ def scrape_lahore_combined():
                         if os.path.exists(temp_pdf):
                             os.remove(temp_pdf)
                     else:
-                        download_failures.append(f"Broiler PDF download failed after 10 retries for month {m_str}")
+                        download_failures.append(f"Broiler PDF download failed for month {m_str}")
             except Exception as e:
                 download_failures.append(f"Broiler page error for month {m_str}: {e}")
 
-        # 2. Download Chick PDFs with Retry
-        print("Downloading Chick PDFs with retries...")
+        print("Downloading Chick PDFs...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m_str}"
             try:
@@ -265,7 +261,7 @@ def scrape_lahore_combined():
                         if os.path.exists(temp_pdf):
                             os.remove(temp_pdf)
                     else:
-                        download_failures.append(f"Chick PDF download failed after 10 retries for month {m_str}")
+                        download_failures.append(f"Chick PDF download failed for month {m_str}")
             except Exception as e:
                 download_failures.append(f"Chick page error for month {m_str}: {e}")
 
@@ -297,7 +293,6 @@ def scrape_lahore_combined():
         try:
             with open(local_file, "r", encoding="utf-8") as f:
                 existing_data = json.load(f)
-                # Filter out previous status log objects if present
                 existing_data = [item for item in existing_data if "date" in item and item["date"] != "STATUS_LOG"]
         except Exception:
             existing_data = []
@@ -313,11 +308,35 @@ def scrape_lahore_combined():
                     existing[key] = entry[key]
 
     all_entries = list(combined_map.values())
+
+    # -------------------------------------------------------------
+    # FORWARD FILL LOGIC (Chronological Order: Oldest to Newest)
+    # -------------------------------------------------------------
+    all_entries.sort(key=lambda item: parse_date_string(item["date"]))
+
+    last_valid = {
+        "doc_announced_rate": "N/A",
+        "broiler_announced_rate": "N/A",
+        "market_position": "N/A",
+        "average_rate": "N/A"
+    }
+
+    fields = ["doc_announced_rate", "broiler_announced_rate", "market_position", "average_rate"]
+
+    for entry in all_entries:
+        for field in fields:
+            val = entry.get(field, "N/A")
+            if val in ["N/A", "", None]:
+                if last_valid[field] != "N/A":
+                    entry[field] = last_valid[field]
+            else:
+                last_valid[field] = val
+
+    # Sort back to Descending Order (Newest first for output)
     all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
 
     final_90_days_data = all_entries[:90]
 
-    # If any download failures occurred after 10 retries, prepend a status log entry at index 0
     if download_failures:
         failure_log_entry = {
             "date": "STATUS_LOG",
@@ -330,7 +349,7 @@ def scrape_lahore_combined():
     with open(local_file, "w", encoding="utf-8") as f:
         json.dump(final_90_days_data, f, indent=4, ensure_ascii=False)
 
-    print(f"Successfully updated {local_file} with {len(final_90_days_data)} records.")
+    print(f"Successfully updated {local_file} with {len(final_90_days_data)} adjusted records.")
     return local_file
 
 def upload_to_drive(file_path):

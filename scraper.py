@@ -34,6 +34,13 @@ def parse_date_string(date_str):
             pass
     return datetime.min
 
+def normalize_date(date_str):
+    """Standardizes all dates to DD-MM-YYYY format (e.g., 2-9-2026 -> 02-09-2026)."""
+    dt = parse_date_string(date_str)
+    if dt != datetime.min:
+        return dt.strftime("%d-%m-%Y")
+    return date_str.strip()
+
 def parse_pdf_broiler(pdf_path):
     data = {}
     try:
@@ -45,18 +52,19 @@ def parse_pdf_broiler(pdf_path):
         for line in full_text.splitlines():
             date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{4})', line)
             if date_match:
-                date_str = date_match.group(1)
+                raw_date = date_match.group(1)
+                norm_d = normalize_date(raw_date)
                 after_date = line[date_match.end():]
                 rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
                 cleaned = [r.strip() if r.strip().upper().startswith("RS") else f"RS. {r.strip()}" for r in rates]
                 if len(cleaned) >= 3:
-                    data[date_str] = {
+                    data[norm_d] = {
                         "broiler_announced_rate": cleaned[0],
                         "market_position": cleaned[1],
                         "average_rate": cleaned[2]
                     }
                 elif len(cleaned) == 2:
-                    data[date_str] = {
+                    data[norm_d] = {
                         "broiler_announced_rate": cleaned[0],
                         "market_position": cleaned[1],
                         "average_rate": "N/A"
@@ -76,33 +84,50 @@ def parse_pdf_chick(pdf_path):
         for line in full_text.splitlines():
             date_match = re.search(r'(\d{1,2}[-/]\d{1,2}[-/]\d{4})', line)
             if date_match:
-                date_str = date_match.group(1)
+                raw_date = date_match.group(1)
+                norm_d = normalize_date(raw_date)
                 after_date = line[date_match.end():]
                 rates = re.findall(r'(?:RS\.?\s*)?[\d\.]+', after_date, re.IGNORECASE)
                 if rates:
                     val = rates[0].strip()
-                    data[date_str] = val if val.upper().startswith("RS") else f"RS. {val}"
+                    data[norm_d] = val if val.upper().startswith("RS") else f"RS. {val}"
     except Exception as e:
         print(f"Error parsing Chick PDF {pdf_path}: {e}")
     return data
 
+def scrape_table_fallback(page, is_broiler=True):
+    data_dict = {}
+    soup = BeautifulSoup(page.content(), "html.parser")
+    table = soup.find("table")
+    if table:
+        for row in table.find_all("tr")[1:]:
+            cols = row.find_all("td")
+            if len(cols) >= 2:
+                d = cols[0].text.strip()
+                if d:
+                    norm_d = normalize_date(d)
+                    if is_broiler and len(cols) >= 4:
+                        data_dict[norm_d] = {
+                            "broiler_announced_rate": cols[1].text.strip(),
+                            "market_position": cols[2].text.strip(),
+                            "average_rate": cols[3].text.strip()
+                        }
+                    elif not is_broiler:
+                        data_dict[norm_d] = cols[1].text.strip()
+    return data_dict
+
 def scrape_today_cards(page):
-    """Scrapes today's live rate from the top card of the page."""
     today_data = {"broiler": {}, "chick": {}}
     
-    # 1. Scrape Today Broiler Card
+    # Broiler Card
     try:
         page.goto("https://www.poultrybaba.com/rates/broiler/lahore", timeout=60000)
         page.wait_for_selector("h1, h2", timeout=10000)
-        text = page.content()
-        soup = BeautifulSoup(text, "html.parser")
+        soup = BeautifulSoup(page.content(), "html.parser")
         
-        # Look for today's date e.g., 31 Aug 2026
         date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', soup.text)
         if date_match:
-            dt_obj = datetime.strptime(date_match.group(1), "%d %b %Y")
-            formatted_date = dt_obj.strftime("%d-%m-%Y")
-            
+            norm_d = normalize_date(date_match.group(1))
             announced = "N/A"
             actual = "N/A"
             
@@ -118,7 +143,7 @@ def scrape_today_cards(page):
                 if rate_match:
                     actual = f"RS. {rate_match.group(1)}"
                     
-            today_data["broiler"][formatted_date] = {
+            today_data["broiler"][norm_d] = {
                 "broiler_announced_rate": announced,
                 "market_position": actual,
                 "average_rate": "N/A"
@@ -126,18 +151,15 @@ def scrape_today_cards(page):
     except Exception as e:
         print(f"Error scraping today broiler card: {e}")
 
-    # 2. Scrape Today Chick Card
+    # Chick Card
     try:
         page.goto("https://www.poultrybaba.com/rates/broiler-chick/lahore", timeout=60000)
         page.wait_for_selector("h1, h2", timeout=10000)
-        text = page.content()
-        soup = BeautifulSoup(text, "html.parser")
+        soup = BeautifulSoup(page.content(), "html.parser")
         
         date_match = re.search(r'(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})', soup.text)
         if date_match:
-            dt_obj = datetime.strptime(date_match.group(1), "%d %b %Y")
-            formatted_date = dt_obj.strftime("%d-%m-%Y")
-            
+            norm_d = normalize_date(date_match.group(1))
             chick_rate = "N/A"
             ann_elem = soup.find(text=re.compile(r'ANNOUNCED RATE', re.I))
             if ann_elem and ann_elem.parent:
@@ -145,7 +167,7 @@ def scrape_today_cards(page):
                 if rate_match:
                     chick_rate = f"RS. {rate_match.group(1)}"
                     
-            today_data["chick"][formatted_date] = chick_rate
+            today_data["chick"][norm_d] = chick_rate
     except Exception as e:
         print(f"Error scraping today chick card: {e}")
         
@@ -161,20 +183,23 @@ def scrape_lahore_combined():
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
-        # Scrape Today's Live Rate Top Cards
         print("Scraping Today's Live Rates...")
         today_cards = scrape_today_cards(page)
         broiler_dict.update(today_cards["broiler"])
         chick_dict.update(today_cards["chick"])
 
-        # 1. Download Broiler PDFs
-        print("Downloading Broiler PDFs...")
+        print("Downloading Broiler PDFs & Scraping Tables...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler/lahore?month={m_str}"
             try:
                 page.goto(url, timeout=60000)
                 page.wait_for_selector("table", timeout=15000)
                 
+                # HTML Table Fallback
+                t_data = scrape_table_fallback(page, is_broiler=True)
+                broiler_dict.update(t_data)
+
+                # PDF Parsing
                 pdf_btn = page.get_by_text("Download PDF", exact=False)
                 if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
                     with page.expect_download(timeout=20000) as download_info:
@@ -183,22 +208,24 @@ def scrape_lahore_combined():
                     temp_pdf = f"broiler_{m_str}.pdf"
                     download.save_as(temp_pdf)
                     parsed = parse_pdf_broiler(temp_pdf)
-                    for k, v in parsed.items():
-                        if k not in broiler_dict:
-                            broiler_dict[k] = v
+                    broiler_dict.update(parsed)
                     if os.path.exists(temp_pdf):
                         os.remove(temp_pdf)
             except Exception as e:
                 print(f"Error processing Broiler page for {m_str}: {e}")
 
-        # 2. Download Chick PDFs
-        print("Downloading Chick PDFs...")
+        print("Downloading Chick PDFs & Scraping Tables...")
         for m_str in recent_months:
             url = f"https://www.poultrybaba.com/rates/broiler-chick/lahore?month={m_str}"
             try:
                 page.goto(url, timeout=60000)
                 page.wait_for_selector("table", timeout=15000)
                 
+                # HTML Table Fallback
+                t_data = scrape_table_fallback(page, is_broiler=False)
+                chick_dict.update(t_data)
+
+                # PDF Parsing
                 pdf_btn = page.get_by_text("Download PDF", exact=False)
                 if pdf_btn.count() > 0 and pdf_btn.first.is_visible():
                     with page.expect_download(timeout=20000) as download_info:
@@ -207,9 +234,7 @@ def scrape_lahore_combined():
                     temp_pdf = f"chick_{m_str}.pdf"
                     download.save_as(temp_pdf)
                     parsed = parse_pdf_chick(temp_pdf)
-                    for k, v in parsed.items():
-                        if k not in chick_dict:
-                            chick_dict[k] = v
+                    chick_dict.update(parsed)
                     if os.path.exists(temp_pdf):
                         os.remove(temp_pdf)
             except Exception as e:
@@ -223,37 +248,32 @@ def scrape_lahore_combined():
     for d in all_dates:
         b_info = broiler_dict.get(d, {})
         doc_rate = chick_dict.get(d, "N/A")
+        
+        # Determine rates
+        b_ann = b_info.get("broiler_announced_rate", "N/A") if isinstance(b_info, dict) else "N/A"
+        m_pos = b_info.get("market_position", "N/A") if isinstance(b_info, dict) else "N/A"
+        a_rate = b_info.get("average_rate", "N/A") if isinstance(b_info, dict) else "N/A"
+
         scraped_entries.append({
             "date": d,
             "doc_announced_rate": doc_rate,
-            "broiler_announced_rate": b_info.get("broiler_announced_rate", "N/A"),
-            "market_position": b_info.get("market_position", "N/A"),
-            "average_rate": b_info.get("average_rate", "N/A")
+            "broiler_announced_rate": b_ann,
+            "market_position": m_pos,
+            "average_rate": a_rate
         })
 
     local_file = "Lahore_Broiler_And_DOC_90Days.json"
-    existing_data = []
 
-    if os.path.exists(local_file):
-        try:
-            with open(local_file, "r", encoding="utf-8") as f:
-                existing_data = json.load(f)
-        except Exception:
-            existing_data = []
+    # Sort descending by Calendar Date
+    scraped_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
 
-    combined_map = {item["date"]: item for item in existing_data}
-    for entry in scraped_entries:
-        combined_map[entry["date"]] = entry
-
-    all_entries = list(combined_map.values())
-    all_entries.sort(key=lambda item: parse_date_string(item["date"]), reverse=True)
-
-    final_90_days_data = all_entries[:90]
+    # Top 90 clean records
+    final_90_days_data = scraped_entries[:90]
 
     with open(local_file, "w", encoding="utf-8") as f:
         json.dump(final_90_days_data, f, indent=4, ensure_ascii=False)
 
-    print(f"Successfully updated {local_file} with {len(final_90_days_data)} records.")
+    print(f"Successfully updated {local_file} with {len(final_90_days_data)} clean records.")
     return local_file
 
 def upload_to_drive(file_path):

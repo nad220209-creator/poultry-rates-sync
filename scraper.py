@@ -47,33 +47,21 @@ def scrape_agbro_lahore():
         
     return None
 
-def scrape_poultry_baba_fallback():
-    """Fallback Source: Scrapes present day from Poultry Baba only if Agbro misses it"""
-    print("Agbro missing today's data. Switching to Poultry Baba fallback...")
-    # Yahan aap apna purana Poultry Baba single-day extraction logic rakh sakte hain
-    return None
-
 def main():
     json_filename = "Lahore_Broiler_And_DOC_90Days.json"
     
-    # Step 1: Try Agbro first
+    # Fetch today's rates directly from Agbro
     today_data = scrape_agbro_lahore()
     
-    # Step 2: Fallback to Poultry Baba if Agbro fails
-    if not today_data:
-        today_data = scrape_poultry_baba_fallback()
-        
     if today_data:
         print(f"Today's Rates Found: {today_data}")
         
-        # Load existing JSON file and update/prepend today's entry
         if os.path.exists(json_filename):
             with open(json_filename, "r") as f:
                 data_list = json.load(f)
         else:
             data_list = []
             
-        # Check if today's date already exists, update it; otherwise insert at top
         exists = False
         for item in data_list:
             if item.get("date") == today_data["date"]:
@@ -84,12 +72,11 @@ def main():
         if not exists:
             data_list.insert(0, today_data)
             
-        # Save back to JSON file
         with open(json_filename, "w") as f:
             json.dump(data_list, f, indent=4)
         print("JSON file updated successfully!")
     else:
-        print("Error: Rates not available on Agbro or Poultry Baba for today.")
+        print("Error: Rates not available on Agbro for today.")
 
 if __name__ == "__main__":
     main()

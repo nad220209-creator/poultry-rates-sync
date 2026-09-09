@@ -18,6 +18,11 @@ def scrape_agbro_lahore():
         soup = BeautifulSoup(response.text, 'html.parser')
         tables = soup.find_all('table')
         
+        # Aaj ki date ke parts (e.g., day=9, month=Sep, year=26)
+        current_day = str(datetime.now().day) # "9"
+        current_month = datetime.now().strftime("%b") # "Sep"
+        current_year = datetime.now().strftime("%y") # "26"
+        
         for table in tables:
             rows = table.find_all('tr')
             for row in rows:
@@ -25,15 +30,13 @@ def scrape_agbro_lahore():
                 if len(cols) >= 10:
                     date_str = cols[0]  # e.g., "9-Sep-26"
                     
-                    # Match today's date dynamically
-                    today_match = datetime.now().strftime("%d-%b")
-                    if today_match.lower() in date_str.lower():
+                    # Exact date matching (handling leading zeros)
+                    if f"{current_day}-{current_month}" in date_str and current_year in date_str:
                         doc = cols[6] if cols[6] != "–" else "N/A"
                         farm_rate = cols[7] if cols[7] != "–" else "N/A"
                         close_rate = cols[9] if cols[9] != "–" else "N/A"
                         
-                        parsed_date = datetime.strptime(date_str, "%d-%b-%y")
-                        formatted_date = parsed_date.strftime("%d-%m-%Y")
+                        formatted_date = datetime.now().strftime("%d-%m-%Y")
                         
                         print("Data successfully fetched from Agbro (Primary Source)!")
                         return {
